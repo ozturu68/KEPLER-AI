@@ -1,0 +1,70 @@
+# ------------------------------------
+# 1. PYTHON SANAL ORTAM VE DERLEME (COMPILATION)
+# ------------------------------------
+
+# Derleme dosyaları
+__pycache__/
+*.pyc
+*.pyd
+*.so
+
+# Sanal Ortam Klasörleri
+# Bu, ortamı yükleyen kişinin kendi ortamını hariç tutar
+.venv/
+venv/
+env/
+# Sizin projenizde kullandığınız özel ortam adı
+exoplanet_proj_env/ 
+
+# ------------------------------------
+# 2. STREAMLIT, NOTEBOOK ve PYTHON KÜTÜPHANELERİ
+# ------------------------------------
+
+# Streamlit Cache ve Çalışma Zamanı (Runtime)
+.streamlit/
+/tmp/
+
+# Log ve geçici dosyalar
+*.log
+*.tmp
+temp/
+tmp/
+
+# Python kütüphanelerinin indirdiği/sakladığı dosyalar
+*.egg-info
+dist/
+build/
+.pytest_cache/
+
+# ------------------------------------
+# 3. VERİ ve MAKİNE ÖĞRENİMİ VARLIKLARI
+# ------------------------------------
+
+# Ham veri dosyaları
+*.csv
+*.xlsx
+*.parquet
+
+# Model ve Ölçekleyici dosyaları (*.joblib formatı için)
+*.joblib 
+
+# models/ klasörünün kendisini takip et, ancak içindeki dosya tiplerini yukarıdaki gibi hariç tut.
+!models/ 
+# Eğer models/ içinde joblib dışı önemli dosyalarınız varsa, onları buraya ekleyin:
+# !models/metadata.json 
+
+# ------------------------------------
+# 4. İŞLETİM SİSTEMİ ve IDE
+# ------------------------------------
+
+# macOS / Linux
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# Visual Studio Code (VS Code)
+.vscode/
+
+# Jupyter Notebook Checkpoints
+.ipynb_checkpoints
