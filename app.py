@@ -12,7 +12,7 @@ import logging
 from typing import Tuple, Dict, Any, List
 
 # KRİTİK İMPORT: Streamlit'in dahili yeniden çalıştırma istisnasını yakalamak için.
-from streamlit.runtime.scriptrunner.exceptions import RerunException 
+#from streamlit.runtime.scriptrunner.exceptions import RerunException 
 
 
 # --- UYGULAMA YAPILANDIRMASI ve SABİTLER ---
