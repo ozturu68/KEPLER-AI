@@ -1,17 +1,8 @@
-# --- TEMEL WEB UYGULAMASI VE I/O ---
-streamlit==1.37.0          # GÜVENLİK GÜNCELLEMESİ: PYSEC-2024-153 kapatıldı
-pandas==2.1.4              # Veri işleme (Python 3.11 ile uyumlu, stabil sürüm)
-numpy==1.26.4              # Sayısal işlemler (pandas bağımlılığı)
-matplotlib==3.8.4          # Veri görselleştirme
-openpyxl==3.1.2            # Opsiyonel: Excel dosyası okuma/yazma desteği
-typing-extensions==4.12.2  # Python tip ipuçları için gerekli
-
-# --- MAKİNE ÖĞRENİMİ VE XAI (Yorumlanabilirlik) ---
-scikit-learn==1.5.0        # GÜVENLİK GÜNCELLEMESİ: PYSEC-2024-110 kapatıldı
-joblib==1.4.2              # Model ve Ölçekleyiciyi kaydetme/yükleme
-catboost==1.2.2            # Ana ML model algoritması
-shap==0.45.0               # Model yorumlanabilirliği (XAI) için kritik
-tqdm==4.66.4               # Opsiyonel: İlerleme çubuğu
-
-# --- SİBER GÜVENLİK VE DENETİM ---
-pip-audit==2.7.2           # Bağımlılık güvenlik denetim aracı
+streamlit
+pandas
+numpy
+joblib
+scikit-learn
+catboost
+shap
+matplotlib
