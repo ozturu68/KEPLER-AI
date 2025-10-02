@@ -66,7 +66,7 @@ Projeyi yerel bilgisayarınızda çalıştırmak için:
 
 ## 🇬🇧 English README.md Content
 
-```markdown
+
 # 🔭 Kepler-AI: High-Confidence Exoplanet Discovery Assistant
 
 ![Streamlit Application Screenshot or Logo](Insert a striking screenshot/GIF of your application here)
