@@ -623,7 +623,7 @@ if uploaded_file is not None and st.session_state.df_raw is None:
         st.session_state.last_prediction = None
         st.session_state.selected_candidate_index = 0
         
-        # Filtre aralıklarını yüklenen veriye göre ayarla
+# Filtre aralıklarını yüklenen veriye göre ayarla
         min_p = df_cleaned['koi_period'].min()
         max_p = df_cleaned['koi_period'].max()
         st.session_state.period_range = (min_p, max_p) if min_p < max_p else (min_p, min_p + 1) # Tek değerse slider'ı bozmamak için +1
@@ -631,16 +631,17 @@ if uploaded_file is not None and st.session_state.df_raw is None:
         st.session_state.status_filter = INVESTIGATION_STATUS_OPTIONS # Yeni filtreyi varsayılana ayarla
 
         logger.info("Dosya başarıyla yüklendi ve temizlendi. Streamlit arayüz geçişi (rerun) tetikleniyor.")
-        st.rerun() 
+        # Başarılı işlemlerden sonra arayüzün yeniden çizilmesi için yeterlidir.
+        st.rerun()  
 
-    except RerunException:
-        raise
+    # DİKKAT: RerunException bloğu ve import satırı kaldırılmıştır.
+    # Genel ve kritik olmayan hatalar için sadece bu blok yeterlidir.
     except Exception as e:
-        logger.exception("Dosya yükleme veya veri işleme sırasında beklenmeyen bir sorun oluştu.") 
+        logger.exception("Dosya yükleme veya veri işleme sırasında beklenmeyen bir sorun oluştu.")  
         st.error(f"Genel Hata: Dosya yükleme veya veri işleme sırasında beklenmeyen bir sorun oluştu. Detay: {type(e).__name__}: {e}")
+        # Hata durumunda session state'i temizle
         st.session_state.df_raw = None
         st.stop()
-
 
 # --- ANA UYGULAMA DİNAMİK SİDEBAR KONTROLÜ ---
 if st.session_state.df_raw is not None:
