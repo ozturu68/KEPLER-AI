@@ -22,7 +22,7 @@ Bu uygulama, yüksek doğruluklu **CatBoost Sınıflandırma Modeli** ile adayla
 
 Uygulama yayına alındıktan sonra bu başlık altında canlı link yer alacaktır:
 
-➡️ [CANLI UYGULAMA LİNKİ BURAYA GELECEK]
+➡️ https://kepler-ai.streamlit.app/
 
 ## ⚙️ Uygulama Özellikleri
 
@@ -89,7 +89,7 @@ This application not only classifies candidates using a high-accuracy **CatBoost
 
 The live link will be placed under this heading once the application is deployed:
 
-➡️ [LIVE APPLICATION LINK WILL BE PLACED HERE]
+➡️ https://kepler-ai.streamlit.app/
 
 ## ⚙️ Application Features
 
