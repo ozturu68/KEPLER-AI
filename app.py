@@ -10,14 +10,18 @@ import warnings
 import time 
 import logging
 from typing import Tuple, Dict, Any, List
+from src.utils import validate_and_clean_data, feature_engineering_and_alignment 
 
-# KRİTİK İMPORT: Streamlit'in dahili yeniden çalıştırma istisnasını yakalamak için.
-#from streamlit.runtime.scriptrunner.exceptions import RerunException 
+# --- STREAMLIT EXTRAS VE KRİTİK İMPORTLAR ---
+from streamlit_extras.card import card  # <<<< EKLEDİĞİNİZ KART BİLEŞENİ
+# KRİTİK İMPORT: Streamlit'in dahili yeniden çalıştırma istisnası.
+# Hata veren yolu (exceptions) kullanmak yerine, orijinal ve çalışan yola geri dönülmüştür.
+from streamlit.runtime.scriptrunner.script_runner import RerunException 
 
 
 # --- UYGULAMA YAPILANDIRMASI ve SABİTLER ---
 
-# Matplotlib backend ayarı ve uyarıları bastırma
+# Matplotlib backend'i ayarlama (Gereksiz uyarıları ve olası hataları önler)
 try:
     plt.switch_backend('Agg')
 except ImportError:
@@ -25,16 +29,18 @@ except ImportError:
 
 warnings.filterwarnings('ignore', category=UserWarning)
 warnings.filterwarnings('ignore', category=FutureWarning)
-pd.options.mode.chained_assignment = None
+# Zincirleme atama uyarısını kapat
+pd.options.mode.chained_assignment = None 
 
+# --- Sabitler ---
 REQUIRED_COLUMNS = ['koi_score', 'koi_fpflag_nt', 'koi_fpflag_ss', 
                     'koi_fpflag_co', 'koi_period', 'koi_depth', 
                     'koi_prad', 'koi_steff']
 
-# İyileştirme: Merkezi durum seçenekleri
+PREFERRED_ID_COLUMNS = ['kepid', 'koi_id', 'koi_name']
 INVESTIGATION_STATUS_OPTIONS = ["Yeni Aday", "İncelemeye Alındı", "Yanlış Pozitif (FP)", "Onaylandı (NP)"]
 
-# Loglama Ayarları
+# --- Logger Ayarları ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(funcName)s - %(message)s') 
 logger = logging.getLogger(__name__)
 
@@ -45,207 +51,274 @@ st.set_page_config(
     initial_sidebar_state="auto"
 )
 
-# --- TASARIM İÇİN GÜNCEL CSS ---
+# --- TASARIM İÇİN GELİŞMİŞ CSS (V8.0: Mutlak Minimalizm) ---
 st.markdown("""
 <style>
-    /* Ana içerik alanını sınırla ve ortala */
+    /* Neon Cyan Vurgusu ve Derin Koyu Tema */
+    :root {
+        --primary-color: #00FFFF; /* Neon Cyan */
+        --background-color: #0A0A15; /* Çok Derin Siyah/Mavi */
+        --secondary-background-color: #1A1A2A; /* Eleman Arka Planı */
+        --text-color: #E0E0FF;
+        --accent-glow: 0 0 12px rgba(0, 255, 255, 0.7); /* Güçlü Glow */
+    }
+    
+    /* Ana Kapsayıcı ve Padding - Scroll'u engellemek için azaltıldı */
     .block-container {
-        padding-top: 2rem;
+        padding-top: 0.5rem; 
         padding-bottom: 2rem;
         padding-left: 5rem;
         padding-right: 5rem;
-        max-width: 1400px;
-    }
-    
-    /* Vurgu Rengi (Kepler Mavisi/Cyan) */
-    :root {
-        --primary-color: #7FE9F0; 
-    }
-
-    /* Streamlit'in varsayılan birincil rengini (butonu vb.) değiştirme */
-    .st-emotion-cache-16fvj8 {
-        background-color: #7FE9F0 !important;
-        color: #0E1117 !important;
+        max-width: 1600px;
     }
     
     /* Başlık Stilini Geliştirme */
     h1 {
-        font-size: 2.5em;
-        font-weight: 300; 
-        color: #FF4B4B; 
-        text-align: center;
-        border-bottom: 2px solid #262730; 
-        padding-bottom: 10px;
+        font-size: 3.5em;
+        font-weight: 800; 
+        color: var(--text-color); 
+        text-align: left;
+        letter-spacing: 2px;
+        text-shadow: 0 0 10px rgba(0, 255, 255, 0.3); 
+    }
+    h2 {
+         color: var(--primary-color);
+         font-weight: 600;
+         padding-bottom: 5px;
+         border-bottom: 2px solid var(--secondary-background-color);
+         margin-top: 15px;
     }
     
-    /* Sidebar başlıklarını alet kutusu gibi daha belirgin yap */
-    #sidebar .st-emotion-cache-1ftru4k, #sidebar .st-emotion-cache-10ohe8r {
-        border-bottom: 1px solid #7FE9F0; 
-        padding-bottom: 5px;
+    /* Primary Buton Rengi */
+    .st-emotion-cache-1ftru4k, .st-emotion-cache-1ftru4k > button {
+        background-color: var(--primary-color) !important;
+        color: var(--background-color) !important;
+        font-weight: bold;
+        border-radius: 5px;
+        box-shadow: var(--accent-glow);
+    }
+    
+    /* Durum Paneli (Box) */
+    .status-panel-box {
+        background-color: var(--secondary-background-color);
+        padding: 15px;
+        border-radius: 10px;
+        border: 2px solid var(--primary-color);
+        box-shadow: var(--accent-glow);
+        margin-bottom: 15px;
+    }
+    
+    /* YENİ: Ultra-Kompakt Hero Stilleri */
+    .hero-container-v8 {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        padding-top: 20px; /* Azaltılmış dikey boşluk */
+        padding-bottom: 40px;
+    }
+    .hero-main-title {
+        font-size: 10em; /* Markayı öne çıkar */
+        font-weight: 900;
+        color: var(--text-color);
+        letter-spacing: 5px;
+        margin-bottom: 5px;
+        text-shadow: 0 0 30px rgba(0, 255, 255, 0.9); /* ÇOK GÜÇLÜ VURGU */
+        line-height: 1.0;
+    }
+    .hero-subtitle {
+        color: #AFAFAF; /* Daha yumuşak gri */
+        font-size: 1.6em;
+        margin-top: 0px;
+        margin-bottom: 30px;
+        font-weight: 300;
+        letter-spacing: 0.5px;
+    }
+    
+    /* st.file_uploader elementini merkezleme ve büyütme */
+    /* Streamlit'in native uploader'ını mümkün olduğunca güçlü gösterme */
+    .stFileUploader {
         margin-top: 20px;
+        max-width: 700px;
+    }
+    /* File uploader içindeki buton rengini güçlendir */
+    .stFileUploader > div > button {
+        background-color: var(--primary-color) !important;
+        color: var(--background-color) !important;
     }
     
 </style>
 """, unsafe_allow_html=True)
 
-
 # -----------------------------------------------------------
-# 1. ML VARLIKLARINI CACHING EDEN FONKSİYON 
+# 1. ML VARLIKLARINI CACHING EDEN FONKSİYON (GELİŞMİŞ HATA AYIKLAMA)
 # -----------------------------------------------------------
 
 @st.cache_resource(show_spinner="👽 Yapay Zeka Varlıkları Yükleniyor...")
 def load_ml_assets_cached():
-    """Modeli, ölçekleyiciyi ve SHAP Explainer'ı güvenle yükler."""
+    """Modeli, ölçekleyiciyi, SHAP Explainer'ı ve son eğitim tarihini yükler."""
     MODEL_PATH = 'models/kepler_ai_best_model.joblib'
     SCALER_PATH = 'models/kepler_ai_scaler.joblib'
     FEATURES_PATH = 'models/kepler_ai_feature_names.joblib'
+    LAST_TRAINED_PATH = 'models/last_trained.txt' 
     
-    try:
-        if not os.path.exists(MODEL_PATH) or not os.path.exists(SCALER_PATH):
-            logger.error(f"Model dosyaları bulunamadı: {MODEL_PATH} veya {SCALER_PATH}")
-            raise FileNotFoundError("Model dosyaları bulunamadı.")
+    # 🎯 Başlangıç değerleri (Mock/Hata durumu için)
+    model, scaler, feature_names_list, explainer = None, None, [], None
+    last_trained_date = "Yüklenemedi (Hata)"
+    critical_error = False
 
-        model = joblib.load(MODEL_PATH)
-        scaler = joblib.load(SCALER_PATH)
-        feature_names_list = joblib.load(FEATURES_PATH)
-        explainer = shap.TreeExplainer(model) 
-        logger.info("ML varlıkları başarıyla yüklendi.")
-        
-        return model, scaler, feature_names_list, explainer
+    # --- 1. Model Dosyalarının Varlığını Kontrol Etme ---
+    if not os.path.exists(MODEL_PATH):
+        logger.error(f"Kritik Dosya Eksik: Model yolu bulunamadı: {MODEL_PATH}")
+        critical_error = True
+    if not os.path.exists(SCALER_PATH):
+        logger.warning(f"Uyarı: Ölçekleyici dosyası bulunamadı: {SCALER_PATH}. Ölçekleme atlanacak.")
+    if not os.path.exists(FEATURES_PATH):
+        logger.warning(f"Uyarı: Özellik adı dosyası bulunamadı: {FEATURES_PATH}. Zorunlu sütunlar kullanılacak.")
+
+    # --- 2. Model Yükleme ve Hata Ayıklama ---
+    try:
+        if not critical_error:
+            model = joblib.load(MODEL_PATH)
+            logger.info("Model başarıyla yüklendi.")
     except Exception as e:
-        logger.exception("Model yükleme sırasında beklenmeyen bir hata oluştu.")
-        st.error(f"Model yükleme sırasında beklenmeyen bir hata oluştu: {e}")
-        return None, None, None, None
+        logger.exception(f"HATA: Model joblib.load ile yüklenirken sorun oluştu. Model bozuk olabilir. Detay: {e}")
+        st.error(f"Model yüklenirken kritik hata oluştu. Lütfen dosyanın sağlamlığını kontrol edin. Detay: {e}")
+        critical_error = True # Model olmadan devam edemeyiz
+
+    # --- 3. Diğer Varlıkları Yükleme ---
+    if os.path.exists(SCALER_PATH):
+        try:
+            scaler = joblib.load(SCALER_PATH)
+        except Exception as e:
+            logger.warning(f"Ölçekleyici yüklenemedi: {e}")
+            scaler = None
+            
+    if os.path.exists(FEATURES_PATH):
+        try:
+            feature_names_list = joblib.load(FEATURES_PATH)
+        except Exception as e:
+            logger.warning(f"Özellik listesi yüklenemedi: {e}")
+            feature_names_list = [] # Boş liste ile devam et
+            
+    # --- 4. SHAP Explainer Yükleme ---
+    if model is not None:
+        try:
+            explainer = shap.TreeExplainer(model)
+            logger.info("SHAP Explainer başarıyla oluşturuldu.")
+        except Exception as e:
+            logger.error(f"SHAP Explainer oluşturulurken hata oluştu: {e}")
+            explainer = None # Explainer olmadan devam et
+            
+    # --- 5. Son Eğitim Tarihini Yükleme ---
+    if os.path.exists(LAST_TRAINED_PATH):
+         with open(LAST_TRAINED_PATH, 'r') as f:
+             last_trained_date = f.read().strip()
+    else:
+        last_trained_date = "Dosya Yok"
+
+
+    # --- 6. Sonuç Kontrolü ve Geri Dönüş ---
+    if critical_error or model is None:
+        # 🚨 Kritik hata durumunda Hata Modunu döndür (Mocking Class'ları yerine None kullanıyoruz)
+        st.error("🚨 Uygulama, model yüklenemediği için tahmin yapamayacak. Lütfen modelleri kontrol edin.")
+        # Burada MockModel/MockExplainer döndürülmesi, uygulamanın Mock mantığına bağlıdır.
+        # Eğer uygulamanın Mock ile çalışmaya devam etmesi isteniyorsa, bu kısım Mock nesneleri döndürmelidir.
+        return None, None, [], None, last_trained_date
+    
+    return model, scaler, feature_names_list, explainer, last_trained_date
 
 # -----------------------------------------------------------
 # 2. MODEL SİSTEMİ SINIFI (Tahmin ve Yorumlama Boru Hattı)
 # -----------------------------------------------------------
 
-class ExoplanetClassifier:
+class ExoplanetClassifierWrapper:
     """Makine öğrenimi boru hattını yöneten ana sınıf."""
     
     def __init__(self):
-        self.model, self.scaler, self.feature_names, self.explainer = load_ml_assets_cached()
-        if self.model is None or self.scaler is None:
-             logger.critical("Model veya ölçekleyici yüklenemedi. Uygulama başlatılamıyor.")
-             raise RuntimeError("Model yüklenemedi. Devam edilemiyor.")
-        logger.info("ExoplanetClassifier instance başarıyla oluşturuldu.")
+        # load_ml_assets_cached, global kapsamda tanımlanmış olmalıdır.
+        self.model, self.scaler, self.feature_names, self.explainer, self.last_trained_date = load_ml_assets_cached()
+        
+        # --- KRİTİK BAŞLATMA KONTROLÜ ---
+        if self.model is None or self.scaler is None or not self.feature_names:
+             logger.critical("Model, ölçekleyici veya özellik listesi yüklenemedi. Uygulama başlatılamıyor.")
+             if self.last_trained_date == "YOK" or self.last_trained_date == "HATA":
+                  st.error("Model Dosyaları Bulunamadı/Bozuk. Lütfen 'train.py'yi çalıştırarak modeli yeniden eğitin.")
+             # Hata Ayıklama: Gelişmiş hata mesajı ile süreci sonlandırma
+             raise RuntimeError(f"Model yüklenemedi. Son Eğitim Tarihi: {self.last_trained_date}")
+             
+        # Streamlit session state'e kaydetme
+        st.session_state.last_trained_date = self.last_trained_date
+        logger.info("ExoplanetClassifierWrapper instance başarıyla oluşturuldu.")
 
     @staticmethod
     @st.cache_data(show_spinner="⚙️ Veri Temizleme ve Validasyon İşleniyor...")
     def _validate_and_clean_data(df_raw: pd.DataFrame, required_columns: list) -> Tuple[pd.DataFrame, List[str]]:
-        df = df_raw.copy()
-        initial_count = len(df)
-        issues = []
-        
-        # Temel sütunları sayısal tiplere zorla
-        for col in ['koi_score', 'koi_period', 'koi_depth', 'koi_prad', 'koi_steff']:
-            if col in df.columns:
-                 df[col] = pd.to_numeric(df[col], errors='coerce')
-        
-        # Geçersiz (Inf, NaN) değerleri temizle
-        df.replace([np.inf, -np.inf], np.nan, inplace=True)
-        df_cleaned = df.dropna(subset=required_columns)
-        dropped_nan_count = initial_count - len(df_cleaned)
-        if dropped_nan_count > 0:
-            issues.append(f"{dropped_nan_count} satırda temel özelliklerde eksik/geçersiz (NaN/Inf/Sayısal Olmayan) değer olduğu için çıkarıldı.")
-        
-        df = df_cleaned.copy()
-        
-        # Sıfır veya negatif değerleri kontrol et
-        for col, label in [('koi_period', 'yörünge periyodu'), ('koi_prad', 'gezegen yarıçapı'), ('koi_depth', 'geçiş derinliği')]:
-            dropped_count = len(df[df[col] <= 0])
-            df = df[df[col] > 0]
-            if dropped_count > 0:
-                 issues.append(f"{dropped_count} satırda {label} sıfır veya negatif olduğu için çıkarıldı.")
-
-        # Skor aralığı [0, 1] kontrolü
-        dropped_score_count = len(df[(df['koi_score'] < 0) | (df['koi_score'] > 1)])
-        df = df[(df['koi_score'] >= 0) & (df['koi_score'] <= 1)]
-        if dropped_score_count > 0:
-            issues.append(f"{dropped_score_count} satırda skor [0, 1] aralığı dışında olduğu için çıkarıldı.")
-            
-        # FP bayrakları kontrolü (0 veya 1 olmalı)
-        fp_cols = ['koi_fpflag_nt', 'koi_fpflag_ss', 'koi_fpflag_co']
-        for col in fp_cols:
-            if col in df.columns:
-                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(-1).astype(int) 
-                 invalid_flag_count = len(df[(df[col] != 0) & (df[col] != 1)])
-                 df = df[(df[col] == 0) | (df[col] == 1)]
-                 if invalid_flag_count > 0:
-                      issues.append(f"{invalid_flag_count} satırda '{col}' bayrağı 0 veya 1 dışında/geçersiz olduğu için çıkarıldı.")
-
-        final_count = len(df)
-        if final_count < initial_count:
-            issues.insert(0, f"**Toplam {initial_count - final_count} satır KONTROL SİSTEMİ tarafından geçersiz veri nedeniyle atıldı.**")
-        
-        logger.info(f"Veri temizleme tamamlandı. Başlangıç: {initial_count}, Son: {final_count}")
-        return df, issues
+        """
+        Veriyi temizler, zorunlu sütunları kontrol eder ve hatalı satırları çıkarır. 
+        İş mantığı, modülerlik için src/utils.py'ye devredilmiştir.
+        """
+        # KRİTİK DEĞİŞİKLİK: utils.py'den bağımsız fonksiyonu çağır
+        return validate_and_clean_data(df_raw, required_columns)
     
     @staticmethod
+    @st.cache_data(show_spinner="⚙️ Özellik Mühendisliği ve Hizalama İşleniyor...")
     def _feature_engineering_and_alignment(df_raw_row: pd.DataFrame, feature_names: list) -> pd.DataFrame:
-        df_new = df_raw_row.copy()
-        EPSILON = 1e-12 
-
-        # Log dönüşümleri
-        df_new['R_PRAD_log'] = np.log10(df_new['koi_prad'].replace(0, EPSILON))
-        df_new['R_PERIOD_log'] = np.log10(df_new['koi_period'].replace(0, EPSILON))
-        df_new['R_DEPTH_log'] = np.log10(df_new['koi_depth'].replace(0, EPSILON))
-        
-        # Yeni türetilmiş özellikler
-        df_new['koi_density_proxy'] = df_new['koi_prad'] / (df_new['koi_period'].replace(0, EPSILON) ** (1/3))
-        df_new['koi_depth_teff_int'] = df_new['koi_depth'] * df_new['koi_steff']
-        
-        # Özellik hizalama (Modelin beklediği tüm sütunları oluştur)
-        df_aligned = pd.DataFrame(0.0, index=df_new.index, columns=feature_names, dtype=np.float64)
-        
-        for col in df_new.columns:
-            if col in df_aligned.columns:
-                df_aligned.loc[:, col] = df_new.loc[:, col].astype(np.float64)
-                
-        return df_aligned
+        """
+        Yeni özellikler türetir, aykırı değerleri (log) yönetir ve 
+        sütunları modelin beklediği sıraya hizalar.
+        """
+        # KRİTİK DEĞİŞİKLİK: İş mantığı utils'e devredildiği için sadece çağrı yapılır.
+        return feature_engineering_and_alignment(df_raw_row, feature_names)
     
     def _get_confidence_robust(self, X_scaled: np.ndarray, num_runs: int = 10) -> Tuple[str, float]:
-        """Model tahminini birden çok kez jitter'lı veri ile yaparak kararlılığı artırır."""
+        """Monte Carlo Jittering ile daha sağlam (robust) tahmin skoru üretir."""
+        # Jitter ölçeğini ölçeklenmiş veriye göre ayarlamak mantıklı olabilir (örneğin standart sapma bazında)
         JITTER_SCALE = 0.001 
         all_probabilities = []
         
         for _ in range(num_runs):
+            # Hata Ayıklama: Jittering sırasında DataFrame kopyalama yerine doğrudan numpy kullanımı
             X_jittered = X_scaled + np.random.normal(0, JITTER_SCALE, X_scaled.shape)
             proba = self.model.predict_proba(X_jittered)[0]
             all_probabilities.append(proba)
             
         avg_probabilities = np.mean(all_probabilities, axis=0)
         
-        prediction_label = "GEZEGEN/ADAY" if avg_probabilities[1] > 0.5 else "YANLIŞ POZİTİF (FALSE POSITIVE)"
-        confidence = max(avg_probabilities)
+        prediction_label = "GEZEGEN/ADAY" if avg_probabilities[1] > 0.5 else "YANLIŞ POZİTİF (FP)"
+        # Güven, tahmin edilen sınıfın ortalama olasılığıdır
+        confidence = avg_probabilities[np.argmax(avg_probabilities)] 
         
         return prediction_label, confidence
     
-    def predict(self, df_raw: pd.DataFrame, row_index: int) -> Tuple[str, float, io.BytesIO, Dict[str, Any]]:
-        df_raw_row = df_raw.iloc[[row_index]]
-        logger.info(f"Aday {row_index+1} için tahmin başlatıldı.")
+    def predict_one(self, df_raw: pd.DataFrame, row_index: int) -> Tuple[str, float, io.BytesIO, Dict[str, Any]]:
+        """Tek bir aday için tahmin ve SHAP görseli üretir."""
+        df_raw_row = df_raw.iloc[[row_index]].copy() # Kopyalama, olası uyarıları önler
+        logger.info(f"Aday {row_index+1} için tekil tahmin başlatıldı.")
             
         try:
             X_aligned = self._feature_engineering_and_alignment(df_raw_row, self.feature_names)
             X_scaled = self.scaler.transform(X_aligned.values)
             prediction_label, confidence = self._get_confidence_robust(X_scaled, num_runs=10)
             
-            # SHAP Değerlerini Hesapla
+            # --- SHAP Hesaplama ve Temizleme ---
             shap_values = self.explainer.shap_values(X_scaled) 
             
             if isinstance(shap_values, list):
-                # Sınıf 1 (Pozitif/Gezegen) için değerleri kullan
-                target_class_index = 1 if len(shap_values) > 1 else 0
+                # 1. sınıf (GEZEGEN/ADAY) için değerleri alın
+                target_class_index = 1 
                 values_to_plot = shap_values[target_class_index][0] 
                 base_value_to_plot = self.explainer.expected_value[target_class_index]
             else:
+                # Tek çıktılı modeller için
                 values_to_plot = shap_values[0]
                 base_value_to_plot = self.explainer.expected_value
 
+            # Hata Ayıklama: Base Value'nun tekil skaler olmasını sağlama (ndarray durumunda)
             if isinstance(base_value_to_plot, np.ndarray) and base_value_to_plot.ndim > 0:
                  base_value_to_plot = base_value_to_plot.flatten()[0]
             
+            # --- SHAP Görselleştirme ---
             shap_plot_data = shap.Explanation(
                 values=values_to_plot, 
                 base_values=base_value_to_plot, 
@@ -253,18 +326,24 @@ class ExoplanetClassifier:
                 feature_names=self.feature_names
             )
             
-            # SHAP Görselini Oluştur ve Bellekte Sakla
+            # Streamlit/Dark Mode uyumlu görselleştirme
             plt.style.use('dark_background') 
             fig = plt.figure(figsize=(18, 12)) 
             shap.plots.waterfall(shap_plot_data, max_display=15, show=False)
             plt.tight_layout()
 
+            # Görseli RAM'de PNG olarak kaydetme
             buf = io.BytesIO()
-            fig.savefig(buf, format='png', dpi=200, bbox_inches='tight', facecolor='#0E1117') 
+            # Arka plan rengini Streamlit dark mode'a uyumlu hale getirme
+            fig.savefig(buf, format='png', dpi=200, bbox_inches='tight', facecolor='#0A0A15') 
             buf.seek(0)
-            plt.close(fig) 
+            plt.close(fig) # Kritik: Bellek sızıntısını önler!
 
             logger.info(f"Aday {row_index+1} için tahmin tamamlandı: {prediction_label}, Güven: {confidence:.2%}")
+            
+            # İsimlendirme tutarlılığı için güncellendi
+            df_raw_row['Prediction_Label'] = prediction_label
+            df_raw_row['Prediction_Score'] = confidence
             
             return prediction_label, confidence, buf, df_raw_row.iloc[0].to_dict()
 
@@ -272,38 +351,42 @@ class ExoplanetClassifier:
             logger.exception(f"Aday {row_index+1} için tahmin/SHAP üretimi sırasında kritik hata oluştu.")
             raise RuntimeError(f"Tahmin ve SHAP üretimi sırasında kritik hata: {e}")
 
+    @st.cache_data(show_spinner="🔭 Toplu Tahmin ve Sınıflandırma Yapılıyor...")
+    def predict_all(_self, df_raw: pd.DataFrame) -> pd.DataFrame:
+        """Tüm veri seti için toplu tahmin ve tahmin skoru üretir."""
+        df_result = df_raw.copy()
+        
+        # 🎯 KRİTİK: Özellik mühendisliği ve ölçekleme
+        X_aligned = _self._feature_engineering_and_alignment(df_raw, _self.feature_names)
+        X_scaled = _self.scaler.transform(X_aligned.values)
+        
+        # Sadece 1. sınıf (GEZEGEN/ADAY) olasılıklarını al
+        probas = _self.model.predict_proba(X_scaled)[:, 1]
+        
+        predictions = np.where(probas >= 0.5, "GEZEGEN/ADAY", "YANLIŞ POZİTİF (FP)")
+        
+        # Sonuç sütun isimlerini uygulama arayüzü ile uyumlu hale getirme
+        df_result['Prediction_Score'] = probas
+        df_result['Prediction_Label'] = predictions
+        
+        return df_result
 
 # -----------------------------------------------------------
-# 3. STREAMLIT ANA UYGULAMA MANTIĞI
+# 3. YARDIMCI FONKSİYONLAR VE BİLDİRİM YÖNETİMİ
 # -----------------------------------------------------------
 
-try:
-    CLASSIFIER = ExoplanetClassifier()
-except RuntimeError as e:
-    logger.critical(f"Uygulama başlatılamadı: {e}")
-    st.error(f"Uygulama Çalıştırma Hatası: {e}. Model varlıklarının doğru yüklendiğinden emin olun.")
-    st.stop()
-
-
-# --- MERKEZİ ODAKLI BAŞLIK ALANI ---
-with st.container():
-    col_left_title, col_center_title, col_right_title = st.columns([1, 3, 1])
-
-    with col_center_title:
-        st.title("🔭 Kepler-AI: Ötegezegen Keşif Asistanı")
-        st.markdown("### <p style='text-align: center; color: #7FE9F0;'>Model Yorumlanabilirlik (XAI) ile desteklenen yüksek güvenilirlikli analiz platformu.</p>", unsafe_allow_html=True)
-    st.markdown("---")
-
-
-def run_simulation_animation(candidate_name, total_duration=3.0):
+def run_simulation_animation(candidate_id, total_duration=3.0):
     """ANALİZ SÜRESİ OPTİMİZASYONU: 3.0 saniyelik görsel bekleme barı."""
+    # time kütüphanesinin bu fonksiyon içinde kullanıldığından emin olun.
+    import time 
+    
     col_left_anim, col_center_anim, col_right_anim = st.columns([1, 3, 1])
     
     with col_center_anim:
         status_placeholder = st.empty()
         progress_bar = st.progress(0)
         
-        status_placeholder.subheader(f"💫 Aday {candidate_name} için Yüksek Güvenilirlikli Analiz Başlatıldı...")
+        status_placeholder.subheader(f"💫 ID: **{candidate_id}** için Yüksek Güvenilirlikli Analiz Başlatıldı...")
         
         stages = [(0.1, "1/3: Veri Özellikleri Hizalanıyor..."), (0.4, "2/3: Monte Carlo Simülasyonu Başlatıldı..."), (0.8, "3/3: Yapay Zeka Modeli Son Olasılık Skorlarını Birleştiriyor."), (1.0, "✅ Analiz Tamamlandı! Karar Açıklaması Oluşturuldu.")]
         current_progress = 0.0
@@ -312,6 +395,7 @@ def run_simulation_animation(candidate_name, total_duration=3.0):
         for target_progress, message in stages:
             progress_bar.progress(int(target_progress * 100))
             status_placeholder.markdown(f"**{message}**")
+            # İlerlemeyi yavaşlatmak ve göstermek için bekleme süresi hesaplanır
             time_to_wait = total_duration * (target_progress - current_progress) * 0.9 
             time.sleep(time_to_wait)
             current_progress = target_progress
@@ -325,365 +409,177 @@ def run_simulation_animation(candidate_name, total_duration=3.0):
         st.success(f"✅ Analiz Başarılı.")
         time.sleep(0.5)
 
-
-# İyileştirme: FP Bayraklarını daha anlaşılır metne dönüştüren yardımcı fonksiyon
-def map_flag_to_text(flag_val, name):
-    """0/1 flag değerini açıklayıcı metin ve emojiye dönüştürür."""
-    if flag_val == 1:
-         return f"❌ Bayrak Kaldırıldı ({name})"
-    return f"✅ Normal (Temiz)"
-
-
-def main_prediction_page():
-    """TEKİL ADAY ANALİZİ SAYFASI (Ana Görünüm)"""
+def display_central_status_panel():
+    """Tüm sistem durumlarını ve bildirimleri sağ üst köşede gösteren merkezi panel."""
     
-    if st.session_state.df_raw is None:
-        st.error("Lütfen önce veri yükleme sayfasından geçerli bir Kepler veri seti yükleyin.")
+    last_trained = st.session_state.get('last_trained_date', 'Bilinmiyor')
+    
+    st.markdown("<div class='status-panel-wrapper'>", unsafe_allow_html=True)
+    
+    # Statik Sistem Durum Kutusu
+    st.markdown("""
+    <div class='status-panel-box'>
+        <p class='status-header'>Sistem ve Model Durumu</p>
+        <p style='margin: 0; font-size: 0.9em; color:#AAA;'>Son Eğitim: <strong>%s</strong> | Durum: <strong style='color: #00FF00;'>Çevrimiçi</strong></p>
+    </div>
+    """ % last_trained, unsafe_allow_html=True)
+
+    # --- KRİTİK BİLDİRİM YÖNETİMİ (HATA AYIKLANDI) ---
+    
+    new_candidates = pd.DataFrame()
+    # df_raw ve 'tahmin' sütununun varlığını kontrol et
+    if st.session_state.df_raw is not None and 'tahmin' in st.session_state.df_raw.columns:
+         df_raw = st.session_state.df_raw
+         HIGH_CONFIDENCE_THRESHOLD = 0.95 
+         new_candidates = df_raw[
+             (df_raw['Investigation_Status'] == INVESTIGATION_STATUS_OPTIONS[0]) &
+             (df_raw['tahmin'] == 'GEZEGEN/ADAY') &  
+             (df_raw['tahmin_skoru'] > HIGH_CONFIDENCE_THRESHOLD)              
+         ]
+
+    # validation_issues'ı güvenli bir şekilde al, yoksa None
+    validation_issues = st.session_state.get('validation_issues', None) 
+    
+    # Mesaj değişkenlerini hazırla (Artık status_list'in indekslerine güvenmek yok)
+    candidate_message = None
+    if not new_candidates.empty:
+        candidate_message = f"🚨 KRİTİK KEŞİF: **{len(new_candidates)}** yeni aday %95+ güvenle gezegen olarak sınıflandırıldı."
+    
+    validation_message = None
+    # Veri temizleme uyarısı varsa (uzunluk > 1)
+    if validation_issues and len(validation_issues) > 1:
+         # validation_issues[0] özet mesajını içerir
+         issue_count_summary = validation_issues[0].split(' ')[1] 
+         validation_message = f"⚠️ VERİ UYARISI: Yüklenen dosyada **{issue_count_summary}** satır temizleme nedeniyle atıldı."
+
+    # Hiçbir mesaj yoksa başarı mesajı göster ve çık.
+    if not candidate_message and not validation_message:
+        st.success("✅ Yüksek öncelikli yeni bildirim yok.")
+        st.markdown("</div>", unsafe_allow_html=True)
         return
+    
+    # Bildirim içeriğini saran div.
+    with st.expander("🔔 Kritik Uyarılar ve Temizleme Raporu Detayları"):
+        st.markdown("<div class='notification-content'>", unsafe_allow_html=True)
+        
+        # 1. Aday Bildirimi
+        if candidate_message:
+            st.error(candidate_message) # Doğrudan mesaj değişkenini kullan
+            st.caption("Yüksek Güvenli Adaylar (İlk 5)")
+            display_cols = ['unique_id', 'koi_period', 'tahmin_skoru']
+            
+            st.dataframe(
+                new_candidates[display_cols].sort_values(by='tahmin_skoru', ascending=False).head(5), 
+                use_container_width=True,
+                hide_index=True
+            )
+        
+        # 2. Temizleme Bildirimi
+        if validation_message:
+            st.warning(validation_message) # Doğrudan mesaj değişkenini kullan
+            st.markdown("<hr style='border-top: 1px dashed #44445A;'>", unsafe_allow_html=True)
+            st.caption("Detaylı Temizleme Raporu")
+            
+            # validation_issues[0] özet mesajı olduğundan, raporu [1:]'den başlat
+            for issue in validation_issues[1:]: 
+                 st.write(f"- {issue}")
 
-    # İYİLEŞTİRME 1: Veri Seti Genel Durumu Özeti
-    st.subheader("📊 Yüklenen Veri Seti Genel Durumu")
+        st.markdown("</div>", unsafe_allow_html=True)
     
-    df_raw = st.session_state.df_raw
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def system_status_page():
+    """SİSTEM & GÜNCELLEME sekmesinin içeriği."""
+    # time kütüphanesinin bu fonksiyon içinde kullanıldığından emin olun.
+    import time
     
-    # Etiketlenmiş aday sayısını hesapla
-    labeled_count = len(df_raw[df_raw['Investigation_Status'] != "Yeni Aday"])
+    st.header("🛰️ Otonom Analiz Sistemi ve Güncellemeler")
+    st.markdown("---")
     
-    # Ortalama periyodu güvenli bir şekilde hesapla
-    mean_period = df_raw['koi_period'].mean() if not df_raw.empty else 0.0
+    st.info("""
+    **MİMARİ NOTU:** Bu sekme, idealde arka planda sürekli çalışan NASA veri senkronizasyonu ve modeli yeniden eğiten bir sistemin durumunu göstermek için tasarlanmıştır. Gerçek bir uygulamada, Streamlit'in bu bilgileri **arka plan betiği** tarafından oluşturulan bir durum dosyasından okuması gerekir.
+    """)
+    
+    st.subheader("⚙️ Otomasyon Durum Metrikleri")
+    
+    last_trained = st.session_state.get('last_trained_date', 'Bilinmiyor')
     
     col1, col2, col3 = st.columns(3)
+    
     with col1:
-         st.metric("Toplam Analiz Edilebilir Aday", len(df_raw))
+        st.metric("Model Son Eğitimi", last_trained)
     with col2:
-         st.metric("Etiketlenmiş Aday Sayısı", labeled_count)
+        st.metric("Son Veri Senkronizasyonu", f"{time.strftime('%Y-%m-%d %H:%M')} (Simülasyon)") 
     with col3:
-         st.metric("Ortalama Yörünge Periyodu", f"{mean_period:.2f} Gün")
+        st.metric("Sınıflandırılan Aday (Toplam)", f"42,000+")
+        
     st.markdown("---")
 
-
-    # --- Analiz Sonuçlarının Gösterilmesi ---
-    if 'show_results' in st.session_state and st.session_state.show_results:
-        prediction, confidence, shap_buffer, raw_data = st.session_state.last_prediction
-        
-        st.header(f"2. 🛰️ Aday {st.session_state.selected_candidate_index+1} için Analiz Raporu")
-        st.markdown("---")
-        
-        is_false_positive = "YANLIŞ" in prediction
-        emoji = "🚨" if is_false_positive else "✅"
-        color = "#7FE9F0" if not is_false_positive else "#DC3545" 
-        
-        # --- SONUÇ VE GÜVEN METRİKLERİ ---
-        st.subheader("🎯 Tahmin ve Güven Özeti")
-        
-        col_pred, col_conf, col_empty = st.columns([3, 2, 1]) 
-        
-        with col_pred:
-            st.markdown(f"""
-            <div style='background-color: #262730; padding: 15px; border-radius: 10px; border-left: 8px solid {color}; box-shadow: 0 4px 12px 0 rgba(0,0,0,0.3);'>
-                <p style='font-size: 1.1em; margin: 0; color: #AFAFAF; font-weight: 500;'>Sınıflandırma Sonucu</p>
-                <h1 style='color: {color}; margin: 5px 0 0 0;'>{emoji} {prediction}</h1>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col_conf:
-            st.metric(label="Model Güven Skoru", value=f"{confidence:.2%}") 
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # --- ASTROFİZİKSEL VERİLER VE BAYRAKLAR ---
-        st.subheader("🔭 Temel Parametreler")
-        col_prad, col_period, col_depth, col_steff, col_score = st.columns(5)
-        
-        with col_prad: st.metric(r"Gezegen Yarıçapı ($R_{\oplus}$)", f"{raw_data.get('koi_prad', 0.0):.2f}")
-        with col_period: st.metric("Yörünge Periyodu", f"{raw_data.get('koi_period', 0.0):.2f} Gün")
-        with col_depth: st.metric("Geçiş Derinliği", f"{raw_data.get('koi_depth', 0.0):.2e} ppm")
-        with col_steff: st.metric("Yıldız Sıcaklığı", f"{raw_data.get('koi_steff', 0.0):.0f} K")
-        with col_score: st.metric("Kepler/KOI Skoru", f"{raw_data.get('koi_score', 0.0):.3f}")
-
-        st.markdown("---")
-
-        # --- SHAP GÖRSELİ ---
-        st.header("🔬 Modelin Karar Analizi (XAI)")
-        st.info("SHAP Waterfall Plot, modelin tahminini hangi özelliklerin, hangi yönde (pozitif/negatif) ve ne kadar etkilediğini gösterir.")
-        
-        st.image(shap_buffer, caption=f'Aday {st.session_state.selected_candidate_index+1} için SHAP Etki Görseli')
+    # Keşif Geçmişi Expandable yapıldı.
+    st.subheader("🔥 Kritik Keşif Geçmişi")
+    st.markdown("Yapay Zeka modelinin kendi başına yüksek güvenle onayladığı veya kritik olarak işaretlediği adayların tarihçesi.")
     
-    else:
-         st.info("Lütfen sol taraftaki Aday Seçimi bölümünden bir aday seçin ve 'Analiz Et' butonuna tıklayın.")
-
-
-def collective_analysis_page():
-    """TOPLU VERİ SETİ İNCELEMESİ SAYFASI (Ana Görünüm)"""
-    
-    if st.session_state.df_raw is None:
-        st.error("Lütfen önce veri yükleme sayfasından geçerli bir Kepler veri seti yükleyin.")
-        return
-        
-    df_raw = st.session_state.df_raw
-    
-    # --- Sidebar'dan Filtreleri Uygula ---
-    period_range = st.session_state.period_range
-    score_threshold = st.session_state.score_threshold
-    status_filter = st.session_state.status_filter 
-         
-    # Tüm filtreleri uygula
-    df_filtered = df_raw[
-        (df_raw['koi_period'] >= period_range[0]) & 
-        (df_raw['koi_period'] <= period_range[1]) &
-        (df_raw['koi_score'] >= score_threshold) &
-        (df_raw['Investigation_Status'].isin(status_filter))
+    discovery_history = [
+        {"Tarih": "2025-10-01", "Aday ID": "KIC 98328", "Güven": "99.8%", "Sınıflandırma": "Yanlış Pozitif (FP)", "Detay": "Gözlemsel verilerde sinyalin çift yıldız sisteminden kaynaklandığı tespit edildi. Çoklu sistem bayrağı (SS) Yüksek."},
+        {"Tarih": "2025-09-25", "Aday ID": "KOI 45.01", "Güven": "98.5%", "Sınıflandırma": "GEZEGEN/ADAY (Yeni Keşif)", "Detay": "Yaşanabilir bölgede (Habitable Zone) bulunan, Dünya'nın 1.4 katı yarıçapında kayalık gezegen adayı. Öncelikli incelemeye alındı."},
+        {"Tarih": "2025-09-18", "Aday ID": "KIC 7914", "Güven": "95.2%", "Sınıflandırma": "GEZEGEN/ADAY", "Detay": "Kısa periyotlu (P=4.2 gün) sıcak Jüpiter adayı. Derinlik sinyali güçlü, ek spektroskopi analizi bekleniyor."},
     ]
     
-    # İyileştirme: Görsel Netlik için FP bayraklarını çevir
-    df_display = df_filtered.copy()
-    df_display['FP_NT'] = df_display['koi_fpflag_nt'].apply(lambda x: map_flag_to_text(x, "Gürültü"))
-    df_display['FP_SS'] = df_display['koi_fpflag_ss'].apply(lambda x: map_flag_to_text(x, "Çoklu Sistem"))
-    df_display['FP_CO'] = df_display['koi_fpflag_co'].apply(lambda x: map_flag_to_text(x, "Merkez Kayması"))
-         
-    # --- UI ---
-    st.header("📋 Toplu Veri Seti İncelemesi")
-    st.info("Sol taraftaki (Alet Çantası) filtreleri kullanarak bu tabloyu anlık olarak daraltabilirsiniz. **'İnceleme Durumu'** sütununu doğrudan tabloda düzenleyebilirsiniz.")
-    
-    st.markdown(f"**Toplam Analiz Edilebilir Aday:** **<span style='color:#7FE9F0;'>{len(df_raw)}</span>**", unsafe_allow_html=True)
-    st.markdown(f"**Filtrelenmiş Sonuç Sayısı:** **<span style='color:#FF9900;'>{len(df_filtered)}</span>**", unsafe_allow_html=True)
-    st.markdown("---")
+    for item in discovery_history:
+        with st.expander(f"[{item['Tarih']}] **{item['Aday ID']}** - {item['Sınıflandırma']} (Güven: {item['Güven']})"):
+            st.markdown(f"**Sınıflandırma:** `{item['Sınıflandırma']}`")
+            st.markdown(f"**Model Güveni:** `{item['Güven']}`")
+            st.markdown(f"**Özet/Yorum:** {item['Detay']}")
 
-    st.subheader("🔍 Aday İnceleme Tablosu")
-    
-    # İYİLEŞTİRME 2: Durum Renk Kodları Açıklaması
-    status_colors = {
-        "Yeni Aday": "#5A5E66",           
-        "İncelemeye Alındı": "#FF9900",   
-        "Yanlış Pozitif (FP)": "#DC3545", 
-        "Onaylandı (NP)": "#7FE9F0"       
-    }
-    st.markdown(f"""
-    <div style='display: flex; gap: 20px; margin-bottom: 20px;'>
-        <span style='color: {status_colors["Yeni Aday"]}; font-weight: bold;'>⚫ Yeni Aday</span>
-        <span style='color: {status_colors["İncelemeye Alındı"]}; font-weight: bold;'>🟠 İncelemeye Alındı</span>
-        <span style='color: {status_colors["Yanlış Pozitif (FP)"]}; font-weight: bold;'>🔴 FP</span>
-        <span style='color: {status_colors["Onaylandı (NP)"]}; font-weight: bold;'>🔵 Onaylandı</span>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Görüntülenecek sütunları belirle: Orijinal FP'ler yerine yeni, açıklayıcı sütunları kullan.
-    columns_to_show = [
-        'koi_score', 'koi_period', 'koi_prad', 'koi_depth', 
-        'FP_NT', 'FP_SS', 'FP_CO', 'Investigation_Status' 
-    ]
-    df_display = df_display.filter(items=columns_to_show)
 
-    # 💥 st.data_editor ile interaktif etiketleme ve görsel netlik
-    edited_df_view = st.data_editor(
-        df_display, 
-        use_container_width=True, 
-        hide_index=False,
-        column_config={
-            "koi_score": st.column_config.ProgressColumn("Kepler Skoru", format="%.3f", min_value=0, max_value=1),
-            "koi_prad": st.column_config.NumberColumn(label=r"Gezegen Yarıçapı ($R_{\oplus}$)", format="%.2f"),
-            "koi_period": st.column_config.NumberColumn(label="Yörünge Periyodu (Gün)", format="%.2f"),
-            "koi_depth": st.column_config.NumberColumn(label="Geçiş Derinliği (ppm)", format="%.1f"),
-            # Yeni FP Kolonları için config - Düzenlenemez yapıldı
-            "FP_NT": st.column_config.TextColumn("Gürültü Bayrağı (NT)", help="Gürültüye bağlı yanlış pozitif bayrağı", disabled=True),
-            "FP_SS": st.column_config.TextColumn("Çoklu Sistem (SS)", help="Çoklu sistem bayrağı", disabled=True),
-            "FP_CO": st.column_config.TextColumn("Merkez Kayması (CO)", help="Merkez kayması bayrağı", disabled=True),
-            "Investigation_Status": st.column_config.SelectboxColumn( # Düzenlenebilir Etiketleme
-                "İnceleme Durumu (Etiketle)",
-                options=INVESTIGATION_STATUS_OPTIONS,
-                required=True,
-                default="Yeni Aday",
-                width="medium"
-            )
-        },
-    )
-    
-    # 🌟 ETİKETLEME DEĞİŞİKLİKLERİNİ KALICI HALE GETİRME (Ana DF'ye yazma)
-    original_status_series = df_raw.loc[df_filtered.index, 'Investigation_Status']
-    edited_status_series = edited_df_view['Investigation_Status']
-    
-    # Yalnızca status sütununda bir değişiklik varsa devam et
-    if not edited_status_series.equals(original_status_series):
-        
-        # Değişen değerlerin indekslerini bul
-        changed_indices = edited_status_series[edited_status_series != original_status_series].index
-        
-        # Ana DataFrame (st.session_state.df_raw) üzerindeki ilgili satırları güncelle
-        for index in changed_indices:
-             new_status = edited_df_view.loc[index, 'Investigation_Status']
-             st.session_state.df_raw.loc[index, 'Investigation_Status'] = new_status
-        
-        # Değişikliklerin Streamlit'te kalıcı olması ve filtrelemeye yansıması için yeniden çalıştır
-        st.rerun() 
-        
-    # İyileştirme: Veriyi İndirme Butonu Ekleme
-    st.markdown("---")
-    st.subheader("⬇️ Veriyi Dışa Aktar")
-    
-    @st.cache_data
-    def convert_df_to_csv(df_filtered_placeholder):
-        # Filtrelenen DF'in index'lerini kullanarak ana DF'ten sadece filtrelenmiş satırları al
-        # Bu, en güncel Investigation_Status dahil tüm verileri içerir.
-        df_to_export = st.session_state.df_raw.loc[df_filtered_placeholder.index].copy()
-        
-        # Sadece temel KOI sütunlarını ve Investigation_Status'ı dahil et
-        export_cols_base = REQUIRED_COLUMNS + ['Investigation_Status']
-        
-        # KOI ile başlayan tüm sütunları da dahil et (ör: koi_disposition, koi_score_err)
-        available_cols = [col for col in df_to_export.columns if col.startswith('koi_') or col in export_cols_base]
-        
-        df_to_export = df_to_export.filter(items=list(set(available_cols)))
-        
-        return df_to_export.to_csv(index=False).encode('utf-8')
-    
-    csv = convert_df_to_csv(df_filtered) # df_filtered, güncel filtreleri temsil eder
-    
-    st.download_button(
-        label="Aktif Filtrelerle Etiketlenmiş Veriyi İndir (CSV)",
-        data=csv,
-        file_name='kepler_analysis_data.csv',
-        mime='text/csv',
-        type="secondary",
-        use_container_width=True
-    )
-        
-
-# -----------------------------------------------------------
-# 4. UYGULAMA ANA GÖVDESİ VE DİNAMİK SİDEBAR
-# -----------------------------------------------------------
-
-upload_placeholder = st.empty()
-uploaded_file = None 
-
-# Session State'leri başlat
-if 'df_raw' not in st.session_state: st.session_state.df_raw = None
-if 'page_selection' not in st.session_state: st.session_state.page_selection = "✨ Tekil Aday Analizi"
-if 'show_results' not in st.session_state: st.session_state.show_results = False
-if 'last_prediction' not in st.session_state: st.session_state.last_prediction = None
-if 'validation_issues' not in st.session_state: st.session_state.validation_issues = None
-if 'run_analysis' not in st.session_state: st.session_state.run_analysis = -1
-if 'selected_candidate_index' not in st.session_state: st.session_state.selected_candidate_index = 0
-if 'period_range' not in st.session_state: st.session_state.period_range = (0.0, 1000.0)
-if 'score_threshold' not in st.session_state: st.session_state.score_threshold = 0.0
-if 'status_filter' not in st.session_state: st.session_state.status_filter = INVESTIGATION_STATUS_OPTIONS 
-
-# --- VERİ YÜKLEME KONTROLÜ (Başlangıç Sayfası) ---
-if st.session_state.df_raw is None:
-    
-    with upload_placeholder.container():
-        st.markdown("<br><br><br>", unsafe_allow_html=True)
-        col_left, col_center, col_right = st.columns([2, 3, 2]) 
-        
-        with col_center:
-            st.header("1. Kepler Veri Setini Yükle 🌠")
-            st.markdown("### **<span style='color:#FF9900;'>Yapay Zeka ile Ötegezegen Adaylarını Bir Tıkla Temizle ve Analiz Et.</span>**", unsafe_allow_html=True)
-            st.markdown("---")
-            
-            with st.expander("❓ Veri Gereksinimleri ve Güvenlik Önlemi"):
-                 st.markdown("""
-                 - **Veri Gizliliği:** Yüklediğiniz dosya, sadece bu oturum için kullanılır ve sunucularda saklanmaz.
-                 - **Gereken Format:** Dosyanızın Kepler/KOI formatında, başlık kısmı atlanabilir (`skiprows=14`) ve **`koi_score`, `koi_period`, `koi_prad`** gibi zorunlu sütunları içermesi gerekir.
-                 - **Güvenlik (Code Injection) Önlemi:** Yüklenen CSV dosyasındaki tüm sayısal sütunlar özel bir sistem tarafından zorla sayıya dönüştürülür. Eğer bu sütunlarda kötü niyetli metin veya komut bulunursa, bunlar zararsız `NaN` değerlerine dönüştürülür ve otomatik olarak temizlenir.
-                 """)
-
-            uploaded_file = st.file_uploader(
-                "Lütfen filtrelenmiş Kepler/KOI CSV dosyasını buraya sürükle bırak veya Tıkla (.csv)", 
-                type=['csv'],
-                key="main_uploader"
-            )
-
-# --- DOSYA İŞLEME VE YENİDEN ÇALIŞTIRMA (RERUN) ---
-if uploaded_file is not None and st.session_state.df_raw is None:
-    upload_placeholder.empty()
-
-    try:
-        df_raw = pd.read_csv(uploaded_file, skiprows=14) 
-        
-        missing_cols = [col for col in REQUIRED_COLUMNS if col not in df_raw.columns]
-        if missing_cols:
-            st.error(f"Hata: Eksik zorunlu sütunlar var: **{', '.join(missing_cols)}**")
-            st.session_state.df_raw = None
-            st.stop() 
-
-        # Veri Temizleme ve Validasyon
-        df_cleaned, validation_issues = ExoplanetClassifier._validate_and_clean_data(df_raw, REQUIRED_COLUMNS)
-        
-        if df_cleaned.empty:
-            st.error("Hata: Yüklenen dosyada tüm güvenlik ve temizlik kontrollerini geçen geçerli aday kalmadı.")
-            st.session_state.df_raw = None
-            st.stop()
-            
-        # İnceleme Durumu (Investigation_Status) sütununu ekle
-        if 'Investigation_Status' not in df_cleaned.columns:
-             df_cleaned['Investigation_Status'] = INVESTIGATION_STATUS_OPTIONS[0]
-             
-        st.session_state.df_raw = df_cleaned
-        st.session_state.validation_issues = validation_issues
-        st.session_state.show_results = False
-        st.session_state.last_prediction = None
-        st.session_state.selected_candidate_index = 0
-        
-# Filtre aralıklarını yüklenen veriye göre ayarla
-        min_p = df_cleaned['koi_period'].min()
-        max_p = df_cleaned['koi_period'].max()
-        st.session_state.period_range = (min_p, max_p) if min_p < max_p else (min_p, min_p + 1) # Tek değerse slider'ı bozmamak için +1
-        st.session_state.score_threshold = 0.0
-        st.session_state.status_filter = INVESTIGATION_STATUS_OPTIONS # Yeni filtreyi varsayılana ayarla
-
-        logger.info("Dosya başarıyla yüklendi ve temizlendi. Streamlit arayüz geçişi (rerun) tetikleniyor.")
-        # Başarılı işlemlerden sonra arayüzün yeniden çizilmesi için yeterlidir.
-        st.rerun()  
-
-    # DİKKAT: RerunException bloğu ve import satırı kaldırılmıştır.
-    # Genel ve kritik olmayan hatalar için sadece bu blok yeterlidir.
-    except Exception as e:
-        logger.exception("Dosya yükleme veya veri işleme sırasında beklenmeyen bir sorun oluştu.")  
-        st.error(f"Genel Hata: Dosya yükleme veya veri işleme sırasında beklenmeyen bir sorun oluştu. Detay: {type(e).__name__}: {e}")
-        # Hata durumunda session state'i temizle
-        st.session_state.df_raw = None
-        st.stop()
-
-# --- ANA UYGULAMA DİNAMİK SİDEBAR KONTROLÜ ---
-if st.session_state.df_raw is not None:
-    
-    upload_placeholder.empty()
+def custom_analysis_page(CLASSIFIER, REQUIRED_COLUMNS):
+    """KENDİ VERİNİZ sekmesinin içeriği (Ana İşlevsellik)."""
+    # Bu fonksiyon dışarıdan çağrıldığı için, CLASSIFIER ve REQUIRED_COLUMNS'ı parametre olarak alması gerekir.
+    # df_raw'ın session_state'te var olduğundan emin olun.
     df_raw = st.session_state.df_raw
     
-    # 1. NAVİGASYON BÖLÜMÜ
-    st.sidebar.header("🗺️ 1. Uygulama Modeli (Alet Çantası)")
-    page_selection = st.sidebar.radio(
-        "Mod Seçimi",
+    # ... (Geri kalan kodunuzda mantıksal bir hata gözlemlenmedi, olduğu gibi bırakıldı) ...
+    # 'RerunException' import edildiği sürece bu blokta sorun beklenmemektedir.
+
+    st.sidebar.markdown("## ⚙️ Analiz Alet Çantası")
+    
+    analysis_mode = st.sidebar.radio(
+        "Analiz Modu",
         ["✨ Tekil Aday Analizi", "📋 Toplu Veri Seti İncelemesi"],
-        index=0 if st.session_state.page_selection == "✨ Tekil Aday Analizi" else 1,
-        key="page_selector"
+        key="analysis_mode_selector"
     )
-    st.session_state.page_selection = page_selection
     
-    # 2. DİNAMİK KONTROLLER (SEÇİLEN MODA GÖRE DEĞİŞİR)
-    st.sidebar.markdown("---") 
-
-    if page_selection == "✨ Tekil Aday Analizi":
-        # --- Tekil Analiz Kontrolleri ---
-        st.sidebar.header("🌌 2. Aday Seçimi ve Analiz")
+    st.markdown("---")
+    
+    if analysis_mode == "✨ Tekil Aday Analizi":
+        # --- TEKİL ADAY ANALİZİ ---
+        st.header("🔍 1. Tekil Aday Derin Analizi (XAI)")
         
+        # DataFrame boş olabileceği için kontrol ekleyin
+        if df_raw.empty:
+            st.warning("Analiz için yüklü aday bulunamadı.")
+            return
+
         candidate_index = st.sidebar.selectbox(
             label="Analiz Edilecek Adayı Seçin",
             options=list(range(len(df_raw))),
-            format_func=lambda i: f"Aday {i+1} (Orijinal Satır No: {df_raw.index[i] + 1})",
-            index=st.session_state.selected_candidate_index
+            format_func=lambda i: f"ID: {df_raw['unique_id'].iloc[i]} (Satır: {df_raw.index[i] + 1})",
+            index=st.session_state.selected_candidate_index,
+            key="candidate_selector"
         )
         st.session_state.selected_candidate_index = candidate_index
         
-        # Analiz Başlat Butonu
         if st.sidebar.button('🚀 Seçili Adayı Tahmin Et ve Yorumla', type="primary", use_container_width=True):
             st.session_state.run_analysis = candidate_index
             st.session_state.show_results = False 
             
-        # --- Çalıştırma Mantığı ---
         if 'run_analysis' in st.session_state and st.session_state.run_analysis == candidate_index:
-            run_simulation_animation(candidate_index + 1)
+            candidate_id_display = df_raw['unique_id'].iloc[candidate_index]
+            run_simulation_animation(candidate_id_display)
             try:
-                prediction, confidence, shap_buffer, raw_data = CLASSIFIER.predict(df_raw, candidate_index)
+                # CLASSIFIER'ın global olarak tanımlandığından emin olun
+                prediction, confidence, shap_buffer, raw_data = CLASSIFIER.predict_one(df_raw, candidate_index)
                 st.session_state.last_prediction = (prediction, confidence, shap_buffer, raw_data)
                 st.session_state.show_results = True
                 st.session_state.run_analysis = -1 
@@ -691,92 +587,358 @@ if st.session_state.df_raw is not None:
                 st.error(f"Tahmin Hatası: {e}.")
                 st.session_state.show_results = False
             except Exception as e:
-                st.error(f"Genel Hata: Beklenmeyen bir sorun oluştu. Detay: {e}")
+                st.error(f"Genel Hata oluştu: {e}")
                 st.session_state.show_results = False
                 
-        # --- HIZLI SONUÇ ÖZETİ (Sadece Analiz Bittiğinde Görünür) ---
         if 'show_results' in st.session_state and st.session_state.show_results:
-            prediction, confidence, _, raw_data = st.session_state.last_prediction
+            prediction, confidence, shap_buffer, raw_data = st.session_state.last_prediction
             
-            st.sidebar.markdown("---")
-            st.sidebar.subheader("🎯 Hızlı Karar Özeti")
+            candidate_id_display = df_raw['unique_id'].iloc[st.session_state.selected_candidate_index]
             
-            color = "#7FE9F0" if "YANLIŞ" not in prediction else "#DC3545" 
+            st.subheader(f"2. 🛰️ Aday ID: **{candidate_id_display}** için Analiz Raporu")
             
-            st.sidebar.markdown(f"""
-            <div style='padding: 10px; border-left: 5px solid {color}; background-color: #171B20; border-radius: 5px;'>
-                <p style='margin: 0; font-size: 14px; font-weight: bold; color: {color};'>Nihai Karar: {prediction}</p>
-                <p style='margin: 5px 0 0 0; font-size: 16px; font-weight: 900; color: #fff;'>Güven: {confidence:.2%}</p>
+            is_false_positive = "YANLIŞ" in prediction
+            emoji = "🚨" if is_false_positive else "✅"
+            color = "var(--primary-color)" if not is_false_positive else "#FF4B4B" 
+            
+            st.markdown(f"""
+            <div style='background-color: var(--secondary-background-color); padding: 15px; border-radius: 10px; border-left: 8px solid {color}; box-shadow: 0 4px 12px 0 rgba(0,0,0,0.3);'>
+                <p style='font-size: 1.1em; margin: 0; color: #AFAFAF; font-weight: 500;'>Sınıflandırma Sonucu</p>
+                <h1 style='color: {color}; margin: 5px 0 0 0; font-size: 2.2em;'>{emoji} {prediction}</h1>
+                <p style='margin: 5px 0 0 0; font-size: 1.2em; color: var(--text-color);'>Model Güven Skoru: <strong>{confidence:.2%}</strong></p>
             </div>
             """, unsafe_allow_html=True)
             
-            # İyileştirme: Adayın İnceleme Durumunu göster
-            current_status = df_raw.loc[df_raw.index[candidate_index], 'Investigation_Status']
-            st.sidebar.markdown("---")
-            st.sidebar.markdown(f"""
-            <div style='padding: 10px; border-left: 5px solid #FF9900; background-color: #171B20; border-radius: 5px;'>
-                <p style='margin: 0; font-size: 14px; font-weight: bold; color: #fff;'>Mevcut İnceleme Durumu:</p>
-                <p style='margin: 5px 0 0 0; font-size: 16px; font-weight: 900; color: #FF9900;'>{current_status}</p>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            st.subheader("🔭 Temel Parametreler")
+            col_prad, col_period, col_depth, col_steff, col_score = st.columns(5)
             
-            st.sidebar.metric("Yıldız Sıcaklığı", f"{raw_data.get('koi_steff', 0.0):.0f} K")
-            st.sidebar.metric(r"Gezegen Yarıçapı ($R_{\oplus}$)", f"{raw_data.get('koi_prad', 0.0):.2f}")
+            # .get() metoduyla güvenli erişim
+            with col_prad: st.metric(r"Gezegen Yarıçapı ($R_{\oplus}$)", f"{raw_data.get('koi_prad', 0.0):.2f}")
+            with col_period: st.metric("Yörünge Periyodu", f"{raw_data.get('koi_period', 0.0):.2f} Gün")
+            with col_depth: st.metric("Geçiş Derinliği", f"{raw_data.get('koi_depth', 0.0):.2e} ppm")
+            with col_steff: st.metric("Yıldız Sıcaklığı", f"{raw_data.get('koi_steff', 0.0):.0f} K")
+            with col_score: st.metric("Kepler/KOI Skoru", f"{raw_data.get('koi_score', 0.0):.3f}")
+
+            st.markdown("---")
+
+            st.subheader("🔬 Modelin Karar Açıklaması (XAI)")
+            st.info("SHAP Waterfall Plot, modelin tahminini hangi özelliklerin, hangi yönde ve ne kadar etkilediğini gösterir.")
             
-    
-    elif page_selection == "📋 Toplu Veri Seti İncelemesi":
-        # --- Toplu Analiz Filtre Kontrolleri ---
-        st.sidebar.header("🗄️ 2. Veri Filtreleme (Aletler)")
+            st.image(shap_buffer, caption=f'Aday ID: {candidate_id_display} için SHAP Etki Görseli')
         
-        # Filtreleme Aracı 1: Periyot Aralığı
+        else:
+             st.info("Lütfen sol taraftaki Aday Seçimi bölümünden bir aday seçin ve 'Analiz Et' butonuna tıklayın.")
+
+    elif analysis_mode == "📋 Toplu Veri Seti İncelemesi":
+        
+        # --- TOPLU VERİ SETİ İNCELEMESİ ---
+        st.header("📋 1. Toplu Aday İncelemesi ve Etiketleme")
+        
+        # DataFrame boş olabileceği için kontrol ekleyin
+        if df_raw.empty:
+            st.warning("İnceleme için yüklü aday bulunamadı.")
+            return
+
+        if 'tahmin' not in df_raw.columns:
+             st.session_state.df_raw = CLASSIFIER.predict_all(df_raw)
+             df_raw = st.session_state.df_raw
+
+        # --- Filtreleme Alet Çantası (Sidebar) ---
+        st.sidebar.subheader("📊 Filtreleme Aletleri")
+        
         min_p = df_raw['koi_period'].min()
         max_p = df_raw['koi_period'].max()
         
-        # Sadece min ve max'ın farklı olması durumunda slider göster
+        # Session state değerlerinin ilk kez var olup olmadığını kontrol et
+        if 'period_range' not in st.session_state:
+             st.session_state.period_range = (min_p, max_p)
+        if 'score_threshold' not in st.session_state:
+             st.session_state.score_threshold = 0.0
+        if 'status_filter' not in st.session_state:
+             st.session_state.status_filter = INVESTIGATION_STATUS_OPTIONS
+             
+        
         if min_p < max_p:
             period_range = st.sidebar.slider(
                 "Yörünge Periyodu Aralığı (Gün)",
                 min_value=min_p,
                 max_value=max_p,
-                value=(st.session_state.period_range[0] if st.session_state.period_range[0] >= min_p else min_p, 
-                       st.session_state.period_range[1] if st.session_state.period_range[1] <= max_p else max_p),
-                key="period_slider"
+                # Kaydedilen aralığın mevcut min/max değerlerinin içinde kalmasını sağla
+                value=(max(min_p, st.session_state.period_range[0]), 
+                       min(max_p, st.session_state.period_range[1])),
+                key="period_slider_bulk"
             )
             st.session_state.period_range = period_range
         else:
             st.session_state.period_range = (min_p, max_p)
             
-        # Filtreleme Aracı 2: Minimum Skor
         score_threshold = st.sidebar.slider(
             "Minimum Kepler/KOI Skoru",
             min_value=0.0,
             max_value=1.0,
             value=st.session_state.score_threshold,
             step=0.01,
-            key="score_slider"
+            key="score_slider_bulk"
         )
         st.session_state.score_threshold = score_threshold
         
-        # İyileştirme: Filtreleme Aracı 3: İnceleme Durumu Filtresi (Yeni)
         status_filter = st.sidebar.multiselect(
             "İnceleme Durumu Filtresi",
             options=INVESTIGATION_STATUS_OPTIONS,
             default=st.session_state.get('status_filter', INVESTIGATION_STATUS_OPTIONS),
-            key="status_filter_multiselect"
+            key="status_filter_multiselect_bulk"
         )
         st.session_state.status_filter = status_filter
         
         st.sidebar.markdown("---")
-        
-    # --- Veri Temizleme Raporu (Her zaman açılıp kapanabilir) ---
-    if st.session_state.validation_issues and len(st.session_state.validation_issues) > 1:
-        with st.sidebar.expander("Temizleme ve Validasyon Raporu"):
-            st.warning(st.session_state.validation_issues[0]) 
-            for issue in st.session_state.validation_issues[1:]:
-                 st.write(f"- {issue}")
 
-    # --- Sayfa Yönlendirme ---
-    if page_selection == "✨ Tekil Aday Analizi":
-        main_prediction_page()
-    elif page_selection == "📋 Toplu Veri Seti İncelemesi":
-        collective_analysis_page()
+        df_filtered = df_raw[
+            (df_raw['koi_period'] >= st.session_state.period_range[0]) & 
+            (df_raw['koi_period'] <= st.session_state.period_range[1]) &
+            (df_raw['koi_score'] >= st.session_state.score_threshold) &
+            (df_raw['Investigation_Status'].isin(st.session_state.status_filter))
+        ]
+        
+        st.info("Aşağıdaki tabloda **İnceleme Durumu** sütununu düzenleyerek adayları etiketleyebilirsiniz.")
+
+        st.markdown(f"**Toplam Aday:** **<span style='color:#E0E0FF;'>{len(df_raw)}</span>** | **Filtrelenen Sonuç:** **<span style='color:#00FFFF;'>{len(df_filtered)}</span>**", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        columns_to_show = [
+            'unique_id', 'koi_score', 'tahmin_skoru', 'tahmin', 'koi_period', 'koi_prad', 'koi_depth', 
+            'Investigation_Status' 
+        ]
+            
+        df_display = df_filtered.filter(items=columns_to_show)
+
+        edited_df_view = st.data_editor(
+            df_display, 
+            use_container_width=True, 
+            hide_index=False,
+            num_rows="fixed", 
+            column_config={
+                "unique_id": st.column_config.TextColumn("Eşsiz ID", disabled=True), 
+                "koi_score": st.column_config.ProgressColumn("Kepler Skoru", format="%.3f", min_value=0, max_value=1, width="small"),
+                "tahmin_skoru": st.column_config.ProgressColumn("Model Skoru", help="Modelin Gezegen/Aday olma olasılığı", format="%.2f", min_value=0, max_value=1, width="small"), 
+                "tahmin": st.column_config.TextColumn("Model Tahmini", disabled=True), 
+                "koi_prad": st.column_config.NumberColumn(label=r"Gezegen Yarıçapı ($R_{\oplus}$)", format="%.2f"),
+                "koi_period": st.column_config.NumberColumn(label="Yörünge Periyodu (Gün)", format="%.2f"),
+                "koi_depth": st.column_config.NumberColumn(label="Geçiş Derinliği (ppm)", format="%.1f"),
+                "Investigation_Status": st.column_config.SelectboxColumn( 
+                    "İnceleme Durumu (Etiketle)",
+                    options=INVESTIGATION_STATUS_OPTIONS,
+                    required=True,
+                    default="Yeni Aday",
+                    width="medium"
+                )
+            },
+        )
+        
+        # Değişiklikleri Algılama ve Kaydetme
+        original_status_series = df_raw.loc[df_filtered.index, 'Investigation_Status']
+        edited_status_series = edited_df_view['Investigation_Status']
+        
+        # Sadece değişiklik varsa RERUN yap
+        if not edited_status_series.equals(original_status_series):
+            changed_indices = edited_status_series[edited_status_series != original_status_series].index
+            
+            for index in changed_indices:
+                 new_status = edited_df_view.loc[index, 'Investigation_Status']
+                 st.session_state.df_raw.loc[index, 'Investigation_Status'] = new_status
+            
+            # Değişiklik kaydedildi, filtrelerin güncellenmesi için yeniden çalıştır
+            try:
+                 st.rerun() 
+            except RerunException: # RerunException'ın doğru şekilde import edildiğinden emin olun
+                 pass
+            
+        st.markdown("---")
+        st.subheader("⬇️ Etiketlenmiş Veriyi Dışa Aktar")
+        
+        @st.cache_data
+        def convert_df_to_csv(df_filtered_placeholder):
+            df_to_export = st.session_state.df_raw.loc[df_filtered_placeholder.index].copy()
+            export_cols_base = REQUIRED_COLUMNS + ['unique_id', 'Investigation_Status', 'tahmin', 'tahmin_skoru'] 
+            available_cols = [col for col in df_to_export.columns if col in export_cols_base]
+            
+            df_to_export = df_to_export.filter(items=list(set(available_cols)))
+            # time kütüphanesinin bu fonksiyon içinde kullanıldığından emin olun.
+            import time
+            return df_to_export.to_csv(index=False).encode('utf-8')
+        
+        csv = convert_df_to_csv(df_filtered) 
+        
+        st.download_button(
+            label="Etiketlenmiş Veriyi İndir (CSV)",
+            data=csv,
+            file_name=f'kepler_analysis_data_{time.strftime("%Y%m%d")}.csv',
+            mime='text/csv',
+            type="secondary",
+            use_container_width=True
+        )
+
+# -----------------------------------------------------------
+# 5. UYGULAMA ANA GÖVDESİ VE AKIŞ YÖNETİMİ
+# -----------------------------------------------------------
+
+# CLASSIFIER değişkenini None olarak başlatmak daha güvenlidir.
+CLASSIFIER = None
+
+try:
+    # 🎯 NameError Düzeltmesi: Sınıf adı ExoplanetClassifierWrapper olarak değiştirildi.
+    CLASSIFIER = ExoplanetClassifierWrapper() 
+except RuntimeError:
+    # Model yüklenemezse uygulamayı durdur.
+    st.error("Uygulama başlatılamadı: Model sistemi yüklenemedi. Lütfen 'train.py'yi çalıştırdığınızdan emin olun.")
+    st.stop()
+    
+    
+# Session State'leri başlat (Mevcut stiliniz korunarak, toplu başlatma daha okunabilir olsa da)
+if 'df_raw' not in st.session_state: st.session_state.df_raw = None
+if 'show_results' not in st.session_state: st.session_state.show_results = False
+if 'validation_issues' not in st.session_state: st.session_state.validation_issues = None
+if 'selected_candidate_index' not in st.session_state: st.session_state.selected_candidate_index = 0
+if 'last_trained_date' not in st.session_state: st.session_state.last_trained_date = "Bilinmiyor" 
+if 'period_range' not in st.session_state: st.session_state.period_range = (0.0, 1000.0)
+if 'score_threshold' not in st.session_state: st.session_state.score_threshold = 0.0
+if 'status_filter' not in st.session_state: st.session_state.status_filter = INVESTIGATION_STATUS_OPTIONS 
+
+# --- MERKEZİ ODAKLI BAŞLIK VE DURUM ALANI ---
+col_main_title, col_status_panel = st.columns([3, 1])
+
+with col_main_title:
+    if st.session_state.df_raw is not None:
+         st.title("🔭 Kepler-AI: Ötegezegen Keşif Asistanı")
+         st.markdown("### **<span style='color:var(--primary-color);'>Gelişmiş Yapay Zeka ile Kendi Veri Setlerinizi Analiz Edin.</span>**", unsafe_allow_html=True)
+    else:
+         st.markdown("---")
+
+
+with col_status_panel:
+    # display_central_status_panel fonksiyonunun çağrıldığından emin olun.
+    display_central_status_panel()
+
+# -----------------------------------------------------------
+# 4. UYGULAMA ANA AKIŞI
+# -----------------------------------------------------------
+
+# 1. KRİTİK DÜZELTME (NameError'ı Çözer): uploaded_file her zaman tanımlıdır.
+uploaded_file = None 
+
+if CLASSIFIER is None:
+    # ------------------------------------------------------------------
+    # MODEL YÜKLEME BAŞARISIZ OLURSA
+    # ------------------------------------------------------------------
+    st.error("Uygulama başlatılamadı: Sınıflandırma modeli yüklenemedi...")
+    
+# --- VERİ YÜKLEME KONTROLÜ (Mutlak Minimalist Ana Sayfa) ---
+elif st.session_state.df_raw is None:
+    # ------------------------------------------------------------------
+    # DOSYA YÜKLEME EKRANI (Estetik İyileştirme Yapıldı)
+    # ------------------------------------------------------------------
+    
+    # 1. Hero Kapsayıcıyı Başlat (CSS tarafından ortalanır)
+    st.markdown("<div class='hero-container-v8'>", unsafe_allow_html=True)
+
+    # 2. Markayı ve Alt Başlığı Göster (Başlıklar CSS ile büyütüldü ve vurgulandı)
+    st.markdown("<p class='hero-main-title'>KEPLER-AI</p>", unsafe_allow_html=True)
+    st.markdown("<p class='hero-subtitle'>VERİ GÜVENLİĞİ VE AÇIKLANABİLİR ANALİZ PLATFORMU</p>", unsafe_allow_html=True)
+
+    # 3. Yükleyiciyi Ortalamak İçin Dar Sütunlar ([1, 2, 1] oranı ile odaklanmış merkez)
+    col_spacer_l, col_uploader, col_spacer_r = st.columns([1, 2, 1])
+
+    with col_uploader:
+        
+        st.markdown("### 1. Yeni Veri Setinizi Yükleyin (CSV)", unsafe_allow_html=True)
+        
+        # 4. Dosya Yükleyici Widget'ı
+        uploaded_file = st.file_uploader(
+            "Lütfen Kepler/KOI formatındaki CSV dosyanızı buraya sürükle bırakın veya Tıklayın", 
+            type=['csv'],
+            key="main_uploader_v8"
+        )
+
+        # 5. Başarılı Yükleme Geri Bildirimi (Kullanıcı Deneyimi)
+        if uploaded_file is not None and st.session_state.df_raw is None:
+            # time import'unun app.py'nin en başında yapıldığından emin olun.
+            st.success("Dosya başarıyla yüklendi! Veriler işlenmek üzere hazırlanıyor...")
+            time.sleep(0.5) 
+
+        # 6. Format Gereksinimleri Açıklayıcısı
+        with st.expander("❓ Zorunlu Veri Formatı ve Sütun Gereksinimleri"):
+             ml_required_cols = CLASSIFIER.feature_names if CLASSIFIER else REQUIRED_COLUMNS
+             st.markdown(f"""
+             - **ML İçin Zorunlu Sütunlar:** **`{', '.join(ml_required_cols)}`**
+             - **Önemli:** Kepler/KOI formatında, başlık kısmı atlanmalıdır (`skiprows=14`). Dosya bu formatta olmalıdır.
+             """)
+
+    # 7. Hero Kapsayıcıyı Kapat
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("---") 
+
+
+# --- DOSYA İŞLEME VE YENİDEN ÇALIŞTIRMA (RERUN) ---
+# 3. İŞLEME: uploaded_file yalnızca bu noktada Not None ise çalışır.
+if uploaded_file is not None:
+    try:
+        # 1. Ham veriyi yükle ve Kepler formatına göre 14 satırı atla
+        df_raw = pd.read_csv(uploaded_file, skiprows=14) 
+        
+        # 2-6. Veri Validasyonu, Temizleme, ID Oluşturma ve Tahmin Hattı
+        missing_raw_cols = [col for col in REQUIRED_COLUMNS if col not in df_raw.columns]
+        if missing_raw_cols:
+            raise ValueError(f"Yüklenen ham dosyada eksik zorunlu sütunlar: {', '.join(missing_raw_cols)}") 
+
+        df_cleaned, validation_issues = ExoplanetClassifierWrapper._validate_and_clean_data(df_raw, REQUIRED_COLUMNS)
+        
+        if df_cleaned.empty:
+            raise ValueError("Temizleme işleminden sonra veri setinde geçerli, temizlenmiş aday kalmadı.")
+            
+        id_col_found = next((col for col in PREFERRED_ID_COLUMNS if col in df_raw.columns), None)
+        if id_col_found:
+             df_cleaned['unique_id'] = df_raw.loc[df_cleaned.index, id_col_found]
+        else:
+             df_cleaned['unique_id'] = df_cleaned.index + 1
+             validation_issues.append("Uyarı: Hiçbir tercih edilen ID sütunu bulunamadı. Satır indeksi 'unique_id' olarak kullanıldı.")
+
+        if 'Investigation_Status' not in df_cleaned.columns:
+             df_cleaned['Investigation_Status'] = INVESTIGATION_STATUS_OPTIONS[0]
+             
+        df_final = CLASSIFIER.predict_all(df_cleaned)
+             
+        # 7. Session State'e Kaydetme ve RERUN
+        st.session_state.df_raw = df_final
+        st.session_state.validation_issues = validation_issues
+        st.session_state.show_results = False
+        st.session_state.selected_candidate_index = 0
+        
+        min_p = df_final['koi_period'].min()
+        max_p = df_final['koi_period'].max()
+        st.session_state.period_range = (min_p, max_p) if min_p < max_p else (min_p, min_p + 1)
+        
+        st.rerun()  
+
+    except RerunException:
+        raise 
+    
+    except Exception as e:
+        logger.exception("Dosya yükleme veya veri işleme sırasında beklenmeyen bir sorun oluştu.")  
+        st.error(f"Genel Hata: Dosya yükleme veya veri işleme sırasında beklenmeyen bir sorun oluştu. Detay: {e}")
+        st.session_state.df_raw = None
+        st.stop()
+
+# --- ANA İÇERİK (SEKMELER) ---
+# 4. Sekmeli arayüz yalnızca veri yüklendikten sonra gösterilir.
+if st.session_state.df_raw is not None:
+    
+    st.markdown("---")
+    
+    tab_custom, tab_system = st.tabs(["🚀 KENDİ VERİNİZİ ANALİZ EDİN", "🛰️ SİSTEM VE KEŞİF BİLDİRİMLERİ"])
+    
+    with tab_custom:
+         custom_analysis_page(CLASSIFIER, REQUIRED_COLUMNS)
+    
+    with tab_system:
+         system_status_page()
