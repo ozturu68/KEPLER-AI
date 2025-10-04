@@ -2,7 +2,8 @@
 
 # 🔭 Kepler-AI: Yüksek Güvenilirlikli Ötegezegen Keşif Asistanı
 
-<img width="2000" height="2000" alt="logo (1)" src="https://github.com/user-attachments/assets/557ceb71-ce53-4757-9532-35c056548120" />
+<img width="2000" height="2000" alt="logo (1)" src="https://github.com/user-attachments/assets/7530512b-7ab0-4cc0-9ce5-c0f2f7780001" />
+
 
 ## 🌟 Proje Özeti
 
