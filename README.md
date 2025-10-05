@@ -1,4 +1,4 @@
-## 🇹🇷 Türkçe README.md İçeriği
+## 🇹🇷 Türkçe
 
 # 🔭 Kepler-AI: Yüksek Güvenilirlikli Ötegezegen Keşif Asistanı
 
@@ -65,7 +65,7 @@ Projeyi yerel bilgisayarınızda çalıştırmak için:
 
 ---
 
-## 🇬🇧 English README.md Content
+## 🇬🇧 English 
 
 
 # 🔭 Kepler-AI: High-Confidence Exoplanet Discovery Assistant
